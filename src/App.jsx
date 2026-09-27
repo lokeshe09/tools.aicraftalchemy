@@ -18,7 +18,7 @@ export default function App() {
     <div className="app">
       <ScrollToTop />
       <Header />
-      <main className="main">
+      <main className="main" id="main">
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/privacy" element={<Privacy />} />
