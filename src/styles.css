@@ -334,6 +334,7 @@ input[type="range"] { width: 100%; accent-color: var(--brand); }
 .radio-card span { font-size: .8rem; color: var(--muted); }
 .radio-card:hover { border-color: color-mix(in srgb, var(--brand) 50%, var(--border)); }
 .radio-card.active { border-color: var(--brand); background: var(--info-bg); }
+.radio-card:disabled { opacity: .45; cursor: not-allowed; }
 .pos-grid { display: grid; grid-template-columns: repeat(3, 38px); gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); width: max-content; }
 .pos-grid.six { row-gap: 30px; }
 .pos-cell { height: 28px; border: 1px dashed var(--border); border-radius: 7px; background: var(--surface); cursor: pointer; display: grid; place-items: center; }

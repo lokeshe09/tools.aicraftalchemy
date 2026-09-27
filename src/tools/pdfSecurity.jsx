@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { ShieldCheck, ShieldAlert, ShieldX, BadgeCheck, KeyRound, FileKey2, Download, ChevronDown, Info } from 'lucide-react'
 import FileTool from '../components/FileTool'
 import { Field, Segmented, Section, Toggle, Alert, Spinner, DropZone, FileList, useHandoff } from '../components/ui'
 import { baseName, pdfBlob, downloadBlob } from '../lib/files'
 import { loadPdf, getPdfLib, hasDigitalSignature, pageFrame } from '../lib/pdfDoc'
 import { getPassword } from '../lib/passwords'
+import { setHandoff } from '../lib/handoff'
 import { PasswordRequiredError } from '../lib/pdf'
 
 const PDF = 'application/pdf,.pdf'
@@ -93,16 +95,69 @@ export function ProtectPdf() {
 }
 
 /* ---------------- Unlock ---------------- */
+const UNLOCK_MODES = [
+  ['verified', 'Verified copy', 'Recommended for signed files. Replaces the signature box with a green “Digital signature verified” stamp (signer, date) and embeds the original signed PDF inside.'],
+  ['attach', 'Keep signature box + attach original', 'Unlocks and embeds the original signed PDF. The old signature box stays, so readers will mark it as invalid.'],
+  ['plain', 'Plain unlock', 'Only removes the password. Readers will mark the signature as invalid.'],
+]
+
 export function UnlockPdf() {
+  const [files, setFiles] = useState([])
+  const [sig, setSig] = useState(null) // { loading } | { list: summarize(...) } | { error }
+  const [mode, setMode] = useState('verified')
+  const [attach, setAttach] = useState(true)
+
+  useEffect(() => {
+    setSig(null)
+    if (!files[0]) return
+    let alive = true
+    ;(async () => {
+      if (!(await hasDigitalSignature(files[0]))) return
+      if (alive) setSig({ loading: true })
+      const [{ verifyPdfSignatures, describeCert }, { summarize }] = await Promise.all([import('../lib/signatureVerify'), import('../lib/signedCopy')])
+      const result = await verifyPdfSignatures(new Uint8Array(await files[0].arrayBuffer()))
+      if (alive) setSig({ list: summarize(result, describeCert) })
+    })().catch((e) => alive && setSig({ error: e.message }))
+    return () => { alive = false }
+  }, [files])
+
+  const signed = !!sig
+  const allValid = !!sig?.list?.length && sig.list.every((x) => x.valid)
+  useEffect(() => { if (sig?.list && !allValid) setMode((m) => (m === 'verified' ? 'attach' : m)) }, [sig, allValid])
+
   return (
     <FileTool
+      files={files}
+      setFiles={setFiles}
       accept={PDF}
       actionLabel="Unlock PDF"
+      disabled={!!sig?.loading}
       options={
         <>
           <h3>Unlock PDF</h3>
-          <p className="muted small">Removes the password and all restrictions (printing, copying, editing). The pages are <strong>not</strong> re-rendered — quality, text and size stay exactly the same.</p>
-          <p className="muted small">If the PDF needs a password to open, you'll be asked for it. You must know the password — this tool does not crack files.</p>
+          <p className="muted small">Removes the password and all restrictions (printing, copying, editing). Pages are <strong>not</strong> re-rendered — quality and text stay exactly the same. You must know the password; this tool does not crack files.</p>
+          {sig?.loading && <Spinner label="Checking digital signature…" />}
+          {sig?.error && <Alert kind="warn">The digital signature could not be read: {sig.error}</Alert>}
+          {sig?.list && (
+            <>
+              <Alert kind={allValid ? 'ok' : 'warn'}>
+                {allValid
+                  ? <>Digitally signed by <strong>{sig.list.map((x) => x.signer).join(', ')}</strong> — signature verified ✓</>
+                  : 'This PDF has a digital signature that is NOT valid.'}
+              </Alert>
+              <Section title="Signed PDF">
+                <p className="muted small">A digital signature is a fingerprint of the file's exact bytes. Unlocking must rewrite those bytes, so <strong>no tool can keep the original signature valid</strong> in an unlocked copy. Choose how the copy should handle it:</p>
+                <div className="radio-cards">
+                  {UNLOCK_MODES.map(([k, t, d]) => (
+                    <button key={k} className={`radio-card ${mode === k ? 'active' : ''}`} disabled={k === 'verified' && !allValid} onClick={() => setMode(k)}>
+                      <strong>{t}</strong><span>{d}</span>
+                    </button>
+                  ))}
+                </div>
+                {mode === 'verified' && <Toggle checked={attach} onChange={setAttach} label="Embed the original signed PDF" hint="Anyone can open it from the attachments (📎) panel to check the real signature." />}
+              </Section>
+            </>
+          )}
         </>
       }
       process={async ([file], progress) => {
@@ -124,14 +179,24 @@ export function UnlockPdf() {
         } catch (e) {
           wasEncrypted = /encrypt/i.test(e?.message || '')
         }
-        const signed = await hasDigitalSignature(file)
-        let note = wasEncrypted ? 'Password and restrictions removed. Quality is unchanged.' : 'This PDF was not encrypted — it had no password or restrictions to remove.'
-        let noteKind = wasEncrypted ? 'ok' : 'info'
-        if (signed) {
-          note += ' Note: this PDF is digitally signed. Removing the encryption changes the file, so the unlocked copy will show the signature as invalid — keep the original for official use.'
-          noteKind = 'warn'
+        const name = `${baseName(file.name)}-unlocked.pdf`
+        const base = wasEncrypted ? 'Password and restrictions removed. Quality is unchanged.' : 'This PDF was not encrypted — it had no password or restrictions to remove.'
+        if (!signed || mode === 'plain') {
+          return {
+            blob: pdfBlob(out.bytes), name,
+            note: signed ? `${base} The digital signature will show as invalid in this copy — keep the original for official use.` : base,
+            noteKind: signed ? 'warn' : wasEncrypted ? 'ok' : 'info',
+          }
         }
-        return { blob: pdfBlob(out.bytes), name: `${baseName(file.name)}-unlocked.pdf`, note, noteKind }
+        progress('Preparing signed copy')
+        const { buildSignedUnlockCopy } = await import('../lib/signedCopy')
+        const useStamp = mode === 'verified' && allValid
+        const r = await buildSignedUnlockCopy(out.bytes, bytes, { name: file.name, signatures: sig?.list || [], stamp: useStamp, attach: mode === 'attach' || attach })
+        const parts = [base]
+        if (r.stamped) parts.push(`The signature box now shows a “Digital signature verified” stamp (${sig.list.map((x) => x.signer).join(', ')}).`)
+        if (useStamp && r.invisible) parts.push('The signature had no visible box on the page, so the invalid signature was removed without adding a stamp.')
+        if (r.attached) parts.push('The original signed PDF is embedded — open the attachments (📎) panel to check the real signature at any time.')
+        return { blob: pdfBlob(r.bytes), name, note: parts.join(' '), noteKind: 'ok' }
       }}
     />
   )
@@ -237,6 +302,7 @@ function SignatureCard({ sig, index, describeCert }) {
 }
 
 export function VerifySignature() {
+  const navigate = useNavigate()
   const [files, setFiles] = useState([])
   const [state, setState] = useState({ loading: false, result: null, error: '' })
   const [mod, setMod] = useState(null)
@@ -271,6 +337,12 @@ export function VerifySignature() {
         </div>
       )}
       {mod && sigs.map((s, i) => <SignatureCard key={i} sig={s} index={i} describeCert={mod.describeCert} />)}
+      {allGood && state.result.encrypted && (
+        <Alert kind="info">
+          Need a copy without the password? <button className="btn btn-soft btn-sm" onClick={() => { setHandoff([files[0]]); navigate('/unlock-pdf') }}>Create a verified unlocked copy</button>
+          <div className="small">It carries a “Digital signature verified” stamp and embeds this original, so the real signature can always be checked.</div>
+        </Alert>
+      )}
       <button className="btn btn-ghost" onClick={() => setFiles([])}>Check another PDF</button>
     </div>
   )

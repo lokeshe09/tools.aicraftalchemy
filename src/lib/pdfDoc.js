@@ -68,7 +68,16 @@ export function pageFrame(page) {
       default: return { x: x + vx, y: y + h - vy }
     }
   }
-  return { vw, vh, rot, map }
+  // Inverse of map(): PDF user-space point → visual coordinates.
+  const unmap = (X, Y) => {
+    switch (rot) {
+      case 90: return { vx: Y - y, vy: X - x }
+      case 180: return { vx: x + w - X, vy: Y - y }
+      case 270: return { vx: y + h - Y, vy: x + w - X }
+      default: return { vx: X - x, vy: y + h - Y }
+    }
+  }
+  return { vw, vh, rot, map, unmap }
 }
 
 /**
