@@ -1,0 +1,35 @@
+{
+  "name": "tools",
+  "private": true,
+  "version": "1.0.0",
+  "description": "tools — every file conversion you need, running 100% in your browser. Built by aicraftalchemy.",
+  "author": "aicraftalchemy",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "docx": "^9.0.2",
+    "heic2any": "^0.0.4",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^2.5.2",
+    "jszip": "^3.10.1",
+    "lucide-react": "^0.460.0",
+    "mammoth": "^1.8.0",
+    "marked": "^14.1.3",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "4.10.38",
+    "pptxgenjs": "^3.12.0",
+    "qrcode": "^1.5.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.3",
+    "vite": "^5.4.11"
+  }
+}
